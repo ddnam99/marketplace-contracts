@@ -10,4 +10,12 @@ struct MarketItem {
     uint256 amount;
     uint256 amountSold;
     bool isCanceled;
+    uint256 blockTime;
+}
+
+struct SaleHistory {
+    address buyer;
+    uint256 price;
+    uint256 amount;
+    uint256 blockTime;
 }

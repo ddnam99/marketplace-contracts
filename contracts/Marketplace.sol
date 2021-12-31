@@ -27,11 +27,13 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
     // whitelist NFT contract address => isERC1155
     mapping(address => bool) private _isERC1155;
 
-    uint256 public marketFeePercent;
+    uint256 public marketFeePercent = 0 ether;
 
     MarketItem[] private _marketItems;
     // seller => marketItemIndex[]
     mapping(address => uint256[]) private _marketItemIndex;
+    // marketItemIndex => saleHistories
+    mapping(uint256 => SaleHistory[]) private _saleHistories;
 
     event PaymentTokenWhitelistChanged(address paymentToken, bool allowance);
     event NFTContractAddressWhitelistChanged(address paymentToken, bool isERC1155, bool allowance);
@@ -45,17 +47,17 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         uint256 amount,
         address seller,
         uint256 price,
-        address paymentToken
+        address paymentToken,
+        uint256 blockTime
     );
-    event MarketItemCancel(uint256 marketItemIndex);
+    event MarketItemCancel(uint256 marketItemIndex, uint256 blockTime);
     event MarketItemSale(
         uint256 marketItemIndex,
-        address indexed nftContract,
-        uint256 indexed tokenId,
         address buyer,
         uint256 price,
         uint256 amount,
-        uint256 marketFeePercent
+        uint256 marketFeePercent,
+        uint256 blockTime
     );
 
     modifier onlyAdmin() {
@@ -97,8 +99,8 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         emit PaymentTokenWhitelistChanged(paymentToken, allowance);
     }
 
-    function isWhitelistPaymentToken(address paymentToken) external view returns (bool) {
-        return _whitelistPaymentTokens[paymentToken];
+    function getWhitelistPaymentToken() external view returns (address[] memory) {
+        return whitelistPaymentTokens;
     }
 
     function setWhitelistNFTContractAddress(
@@ -120,8 +122,8 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         emit NFTContractAddressWhitelistChanged(nftContractAddress, isERC1155, allowance);
     }
 
-    function isWhitelistNFTContractAddress(address nftContractAddress) external view returns (bool) {
-        return _whitelistNFTContractAddresses[nftContractAddress];
+    function getWhitelistNFTContractAddress() external view returns (address[] memory) {
+        return whitelistNFTContractAddresses;
     }
 
     function setMarketFeePercent(uint256 newMarketFeePercent) public onlyAdmin {
@@ -153,30 +155,6 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         }
     }
 
-    function _createMarketItem(
-        address seller,
-        address nftContractAddress,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 price,
-        address paymentToken
-    ) internal returns (uint256 marketItemIndex) {
-        MarketItem memory item = MarketItem(
-            nftContractAddress,
-            tokenId,
-            payable(seller),
-            price,
-            paymentToken,
-            amount,
-            0,
-            false
-        );
-        _marketItems.push(item);
-
-        marketItemIndex = _marketItems.length - 1;
-        _marketItemIndex[seller].push(marketItemIndex);
-    }
-
     function createMarketItem(
         address nftContractAddress,
         uint256 tokenId,
@@ -193,24 +171,42 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         require(price > 0, Error.PRICE_MUST_BE_GREATER_THAN_ZERO);
 
         amount = _transferNFT(nftContractAddress, _msgSender(), address(this), tokenId, amount);
-        uint256 marketItemIndex = _createMarketItem(
-            _msgSender(),
+
+        MarketItem memory item = MarketItem(
+            nftContractAddress,
+            tokenId,
+            payable(_msgSender()),
+            price,
+            paymentToken,
+            amount,
+            0,
+            false,
+            block.timestamp
+        );
+        _marketItems.push(item);
+
+        uint256 marketItemIndex = _marketItems.length - 1;
+        _marketItemIndex[_msgSender()].push(marketItemIndex);
+
+        emit MarketItemCreated(
+            marketItemIndex,
             nftContractAddress,
             tokenId,
             amount,
+            _msgSender(),
             price,
-            paymentToken
+            paymentToken,
+            block.timestamp
         );
-
-        emit MarketItemCreated(marketItemIndex, nftContractAddress, tokenId, amount, _msgSender(), price, paymentToken);
     }
 
     function cancelMarketItem(uint256 marketItemIndex) external nonReentrant whenNotPaused {
         require(_marketItems.length > marketItemIndex, Error.NFT_IS_NOT_FOR_SALE);
-        require(!_marketItems[marketItemIndex].isCanceled, Error.MARKET_ITEM_IS_CANCELED);
 
         MarketItem memory marketItem = _marketItems[marketItemIndex];
         require(_msgSender() == marketItem.seller, Error.YOU_ARE_NOT_THE_SELLER);
+        require(marketItem.amount > marketItem.amountSold, Error.NFT_IS_NOT_FOR_SALE);
+        require(!_marketItems[marketItemIndex].isCanceled, Error.MARKET_ITEM_IS_CANCELED);
 
         _transferNFT(
             marketItem.nftContractAddress,
@@ -222,7 +218,7 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
 
         _marketItems[marketItemIndex].isCanceled = true;
 
-        emit MarketItemCancel(marketItemIndex);
+        emit MarketItemCancel(marketItemIndex, block.timestamp);
     }
 
     function createMarketSale(uint256 marketItemIndex, uint256 amount) external nonReentrant whenNotPaused {
@@ -274,43 +270,44 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
 
         _marketItems[marketItemIndex].amountSold += amount;
 
-        emit MarketItemSale(
-            marketItemIndex,
-            marketItem.nftContractAddress,
-            marketItem.tokenId,
-            _msgSender(),
-            price,
-            amount,
-            marketFeePercent
-        );
+        SaleHistory memory saleHistory = SaleHistory(_msgSender(), price, amount, block.timestamp);
+        _saleHistories[marketItemIndex].push(saleHistory);
+
+        emit MarketItemSale(marketItemIndex, _msgSender(), price, amount, marketFeePercent, block.timestamp);
     }
 
     function getTotalMarketItemCount() external view returns (uint256) {
         return _marketItems.length;
     }
 
-    function getMarketItemSellingCount() external view returns (uint256) {
+    function _getMarketItemSellingCount(uint256 fromMarketItemIndex) private view returns (uint256) {
         uint256 count = 0;
-        for (uint256 i = 0; i < _marketItems.length; i++) {
+        for (uint256 i = fromMarketItemIndex; i < _marketItems.length; i++) {
             if (!_marketItems[i].isCanceled && _marketItems[i].amount > _marketItems[i].amountSold) count++;
         }
 
         return count;
     }
 
-    function getMarketItemSoldOutCount() external view returns (uint256) {
-        uint256 count = 0;
-        for (uint256 i = 0; i < _marketItems.length; i++) {
-            if (_marketItems[i].amount == _marketItems[i].amountSold) count++;
-        }
-
-        return count;
+    function getMarketItemSellingCount() external view returns (uint256) {
+        return _getMarketItemSellingCount(0);
     }
 
-    function getMarketItems(uint256 offset, uint256 limit) external view returns (MarketItem[] memory) {
+    function getMarketItemSelling(uint256 fromMarketItemIndex, uint256 limit)
+        external
+        view
+        returns (MarketItem[] memory)
+    {
+        uint256 marketItemSellingCount = _getMarketItemSellingCount(fromMarketItemIndex);
+        if (limit > marketItemSellingCount) limit = marketItemSellingCount;
         MarketItem[] memory marketItems = new MarketItem[](limit);
-        for (uint256 i = 0; i < limit; i++) {
-            marketItems[i] = _marketItems[i + offset];
+        uint256 index = 0;
+        for (uint256 i = fromMarketItemIndex; i < _marketItems.length; i++) {
+            if (!_marketItems[i].isCanceled && _marketItems[i].amount > _marketItems[i].amountSold) {
+                marketItems[index++] = _marketItems[i];
+
+                if (index == limit) break;
+            }
         }
         return marketItems;
     }
@@ -319,33 +316,16 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         return _marketItems[marketItemIndex];
     }
 
+    function getMarketItemSaleHistory(uint256 marketItemIndex) external view returns (SaleHistory[] memory) {
+        return _saleHistories[marketItemIndex];
+    }
+
     function getTotalMarketItemBySellerCount(address seller) external view returns (uint256) {
         return _marketItemIndex[seller].length;
     }
 
-    function getMarketItemSellingBySellerCount(address seller) external view returns (uint256) {
-        uint256[] memory marketItemIndexes = _marketItemIndex[seller];
-
-        uint256 count = 0;
-        for (uint256 i = 0; i < marketItemIndexes.length; i++) {
-            if (
-                !_marketItems[marketItemIndexes[i]].isCanceled &&
-                _marketItems[marketItemIndexes[i]].amount > _marketItems[marketItemIndexes[i]].amountSold
-            ) count++;
-        }
-
-        return count;
-    }
-
-    function getMarketItemSoldOutBySellerCount(address seller) external view returns (uint256) {
-        uint256[] memory marketItemIndexes = _marketItemIndex[seller];
-
-        uint256 count = 0;
-        for (uint256 i = 0; i < marketItemIndexes.length; i++) {
-            if (_marketItems[marketItemIndexes[i]].amount == _marketItems[marketItemIndexes[i]].amountSold) count++;
-        }
-
-        return count;
+    function getMarketItemIndexBySeller(address seller) external view returns (uint256[] memory) {
+        return _marketItemIndex[seller];
     }
 
     function getMarketItemsBySeller(
@@ -354,6 +334,8 @@ contract Marketplace is AccessControlEnumerable, Pausable, ReentrancyGuard, ERC7
         uint256 limit
     ) external view returns (MarketItem[] memory) {
         uint256[] memory marketItemIndexes = _marketItemIndex[seller];
+
+        if (offset + limit > marketItemIndexes.length) limit = marketItemIndexes.length - offset;
         MarketItem[] memory marketItems = new MarketItem[](limit);
 
         for (uint256 i = 0; i < limit; i++) {
