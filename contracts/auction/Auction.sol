@@ -83,8 +83,8 @@ contract Auction is Factory {
         require(_auctionItems.length > auctionItemIndex, AuctionError.AUCTION_NOT_FOUND);
 
         AuctionItem memory auctionItem = _auctionItems[auctionItemIndex];
-        require(auctionItem.startTime < block.timestamp, AuctionError.AUCTION_ITEM_IS_COMPLETED);
         require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
+        require(auctionItem.startTime > block.timestamp, AuctionError.AUCTION_ITEM_IS_STARTING);
 
         _transferAsset(
             auctionItem.nftContractAddress,
@@ -105,8 +105,8 @@ contract Auction is Factory {
 
         require(auctionItem.owner != _msgSender(), AuctionError.CANNOT_BID_AUCTION_ITEM_FROM_YOURSELF);
         require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
-        require(auctionItem.startTime >= block.timestamp, AuctionError.IT_IS_NOT_TIME_TO_BID_YET);
-        require(auctionItem.startTime + auctionItem.duration < block.timestamp, AuctionError.AUCTION_ITEM_IS_COMPLETED);
+        require(auctionItem.startTime <= block.timestamp, AuctionError.IT_IS_NOT_TIME_TO_BID_YET);
+        require(auctionItem.startTime + auctionItem.duration > block.timestamp, AuctionError.AUCTION_ITEM_IS_COMPLETED);
 
         uint256 highestBid = auctionItem.startPrice;
         if (_bidHistories[auctionItemIndex].length > 0) {
@@ -150,7 +150,7 @@ contract Auction is Factory {
 
         require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
         require(
-            auctionItem.startTime + auctionItem.duration > block.timestamp,
+            auctionItem.startTime + auctionItem.duration < block.timestamp,
             AuctionError.AUCTION_ITEM_IS_NOT_COMPLETED
         );
 

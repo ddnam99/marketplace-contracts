@@ -22,6 +22,7 @@ struct BidHistory {
 
 library AuctionError {
     string public constant AUCTION_NOT_FOUND = "Error: Auction not found";
+    string public constant AUCTION_ITEM_IS_STARTING = "Error: Auction item is starting";
     string public constant AUCTION_ITEM_IS_COMPLETED = "Error: Auction item is completed";
     string public constant AUCTION_ITEM_IS_NOT_COMPLETED = "Error: Auction item is not completed";
     string public constant AUCTION_ITEM_IS_CANCELED = "Error: Auction item is canceled";
