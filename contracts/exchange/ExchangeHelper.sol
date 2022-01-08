@@ -20,7 +20,7 @@ struct SaleHistory {
     uint256 blockTime;
 }
 
-library Error {
+library ExchangeError {
     string public constant PRICE_MUST_BE_GREATER_THAN_ZERO = "Error: Price must be greater than 0";
     string public constant NFT_IS_NOT_FOR_SALE = "Error: NFT is not for sale";
     string public constant YOU_ARE_NOT_THE_SELLER = "Error: You are not the seller";

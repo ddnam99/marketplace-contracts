@@ -9,10 +9,10 @@ if (!multiSigAccount) {
   throw new Error("Please set your MULTI_SIG_ACCOUNT in a .env file");
 }
 
-task("deploy:exchange")
+task("deploy:marketplace")
   .addFlag("verify", "Verify contracts at Etherscan")
   .setAction(async ({}, hre: HardhatRuntimeEnvironment) => {
-    const ContractFactory = await hre.ethers.getContractFactory("Exchange");
+    const ContractFactory = await hre.ethers.getContractFactory("Marketplace");
 
     const contract = await ContractFactory.deploy(multiSigAccount);
     await contract.deployed();

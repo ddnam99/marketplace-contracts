@@ -3,15 +3,13 @@ pragma solidity >=0.8.2;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
-import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 
 import "../core/Factory.sol";
 import "./AuctionHelper.sol";
 
-contract Auction is Factory, ERC721Holder, ERC1155Holder {
+contract Auction is Factory {
     AuctionItem[] private _auctionItems;
-    // seller => auctionItemIndex[]
+    // owner => auctionItemIndex[]
     mapping(address => uint256[]) private _auctionItemIndex;
     // auctionItemIndex => bidHistories
     mapping(uint256 => BidHistory[]) private _bidHistories;
@@ -36,12 +34,6 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
     event AuctionItemCanceled(uint256 auctionItemIndex, uint256 blockTime);
     event AuctionItemPlaceBided(uint256 auctionItemIndex, address bider, uint256 price, uint256 blockTime);
 
-    constructor(address multiSigAccount) {
-        renounceRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(DEFAULT_ADMIN_ROLE, multiSigAccount);
-        beneficiary = multiSigAccount;
-    }
-
     function createAuctionItem(
         address nftContractAddress,
         uint256 tokenId,
@@ -52,7 +44,7 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
         uint256 duration,
         address paymentToken
     ) external nonReentrant onlyWhitelistNFTContract(nftContractAddress) onlyWhitelistPaymentToken(paymentToken) {
-        amount = _transferNFT(nftContractAddress, _msgSender(), address(this), tokenId, amount);
+        amount = _transferAsset(nftContractAddress, _msgSender(), address(this), tokenId, amount);
 
         AuctionItem memory item = AuctionItem(
             nftContractAddress,
@@ -88,13 +80,13 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function cancelAuctionItem(uint256 auctionItemIndex) external nonReentrant {
-        require(_auctionItems.length > auctionItemIndex, Error.AUCTION_NOT_FOUND);
+        require(_auctionItems.length > auctionItemIndex, AuctionError.AUCTION_NOT_FOUND);
 
         AuctionItem memory auctionItem = _auctionItems[auctionItemIndex];
-        require(auctionItem.startTime < block.timestamp, Error.AUCTION_ITEM_IS_COMPLETED);
-        require(!auctionItem.isCanceled, Error.AUCTION_ITEM_IS_CANCELED);
+        require(auctionItem.startTime < block.timestamp, AuctionError.AUCTION_ITEM_IS_COMPLETED);
+        require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
 
-        _transferNFT(
+        _transferAsset(
             auctionItem.nftContractAddress,
             address(this),
             auctionItem.owner,
@@ -107,21 +99,21 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function placeBid(uint256 auctionItemIndex, uint256 price) external nonReentrant {
-        require(_auctionItems.length > auctionItemIndex, Error.AUCTION_NOT_FOUND);
+        require(_auctionItems.length > auctionItemIndex, AuctionError.AUCTION_NOT_FOUND);
 
         AuctionItem memory auctionItem = _auctionItems[auctionItemIndex];
 
-        require(auctionItem.owner != _msgSender(), Error.CANNOT_BID_AUCTION_ITEM_FROM_YOURSELF);
-        require(!auctionItem.isCanceled, Error.AUCTION_ITEM_IS_CANCELED);
-        require(auctionItem.startTime >= block.timestamp, Error.IT_IS_NOT_TIME_TO_BID_YET);
-        require(auctionItem.startTime + auctionItem.duration < block.timestamp, Error.AUCTION_ITEM_IS_COMPLETED);
+        require(auctionItem.owner != _msgSender(), AuctionError.CANNOT_BID_AUCTION_ITEM_FROM_YOURSELF);
+        require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
+        require(auctionItem.startTime >= block.timestamp, AuctionError.IT_IS_NOT_TIME_TO_BID_YET);
+        require(auctionItem.startTime + auctionItem.duration < block.timestamp, AuctionError.AUCTION_ITEM_IS_COMPLETED);
 
         uint256 highestBid = auctionItem.startPrice;
         if (_bidHistories[auctionItemIndex].length > 0) {
             highestBid = _bidHistories[auctionItemIndex][_bidHistories[auctionItemIndex].length - 1].price;
         }
 
-        require(price > highestBid, Error.PRICE_MUST_BE_GREATER_THAN_LAST_PRICE);
+        require(price > highestBid, AuctionError.PRICE_MUST_BE_GREATER_THAN_LAST_PRICE);
 
         price = Math.min(price, highestBid + auctionItem.bidIncrement);
 
@@ -133,12 +125,12 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
 
         require(
             IERC20(auctionItem.paymentToken).allowance(payable(_msgSender()), address(this)) >= payExtra,
-            Error.PAYMENT_TOKEN_IS_NOT_ALLOWED
+            AuctionError.PAYMENT_TOKEN_IS_NOT_ALLOWED
         );
 
         require(
             IERC20(auctionItem.paymentToken).transferFrom(_msgSender(), address(this), payExtra),
-            Error.PAYMENT_TOKEN_TRANSFER_FAILED
+            AuctionError.PAYMENT_TOKEN_TRANSFER_FAILED
         );
 
         BidHistory memory bidHistory = BidHistory(_msgSender(), price);
@@ -152,18 +144,21 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function withdraw(uint256 auctionItemIndex) external nonReentrant {
-        require(_auctionItems.length > auctionItemIndex, Error.AUCTION_NOT_FOUND);
+        require(_auctionItems.length > auctionItemIndex, AuctionError.AUCTION_NOT_FOUND);
 
         AuctionItem memory auctionItem = _auctionItems[auctionItemIndex];
 
-        require(!auctionItem.isCanceled, Error.AUCTION_ITEM_IS_CANCELED);
-        require(auctionItem.startTime + auctionItem.duration > block.timestamp, Error.AUCTION_ITEM_IS_NOT_COMPLETED);
+        require(!auctionItem.isCanceled, AuctionError.AUCTION_ITEM_IS_CANCELED);
+        require(
+            auctionItem.startTime + auctionItem.duration > block.timestamp,
+            AuctionError.AUCTION_ITEM_IS_NOT_COMPLETED
+        );
 
         // winner the auction should be allowed ti withdraw the auction item
         if (_lastBidHistoryIndex[auctionItemIndex][_msgSender()] == _bidHistories[auctionItemIndex].length - 1) {
-            require(_isBided[auctionItemIndex][_msgSender()], Error.NOTING_TO_WITHDRAW);
+            require(_isBided[auctionItemIndex][_msgSender()], AuctionError.NOTING_TO_WITHDRAW);
 
-            _transferNFT(
+            _transferAsset(
                 auctionItem.nftContractAddress,
                 address(this),
                 _msgSender(),
@@ -175,7 +170,7 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
 
         // anyone who participated but did not win the auction should be allowed to withdraw the full amount of their funds
         if (_lastBidHistoryIndex[auctionItemIndex][_msgSender()] < _bidHistories[auctionItemIndex].length - 2) {
-            require(_isBided[auctionItemIndex][_msgSender()], Error.NOTING_TO_WITHDRAW);
+            require(_isBided[auctionItemIndex][_msgSender()], AuctionError.NOTING_TO_WITHDRAW);
 
             IERC20(auctionItem.paymentToken).transfer(
                 _msgSender(),
@@ -185,24 +180,24 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
         }
 
         if (auctionItem.owner == _msgSender()) {
-            require(!auctionItem.isWithdrawn, Error.NOTING_TO_WITHDRAW);
+            require(!auctionItem.isWithdrawn, AuctionError.NOTING_TO_WITHDRAW);
             uint256 highestBid = _bidHistories[auctionItemIndex][_bidHistories[auctionItemIndex].length - 1].price;
 
             if (feePercent == 0) {
                 require(
                     IERC20(auctionItem.paymentToken).transfer(auctionItem.owner, highestBid),
-                    Error.PAYMENT_TOKEN_TRANSFER_TO_OWNER_ERROR
+                    AuctionError.PAYMENT_TOKEN_TRANSFER_TO_OWNER_ERROR
                 );
             } else {
                 uint256 beneficiaryReceivable = (highestBid * feePercent) / (1 ether);
                 uint256 ownerReceivable = highestBid - beneficiaryReceivable;
                 require(
                     IERC20(auctionItem.paymentToken).transfer(beneficiary, beneficiaryReceivable),
-                    Error.PAYMENT_TOKEN_TRANSFER_TO_BENEFICIARY_ERROR
+                    AuctionError.PAYMENT_TOKEN_TRANSFER_TO_BENEFICIARY_ERROR
                 );
                 require(
                     IERC20(auctionItem.paymentToken).transfer(auctionItem.owner, ownerReceivable),
-                    Error.PAYMENT_TOKEN_TRANSFER_TO_OWNER_ERROR
+                    AuctionError.PAYMENT_TOKEN_TRANSFER_TO_OWNER_ERROR
                 );
             }
 
@@ -281,15 +276,5 @@ contract Auction is Factory, ERC721Holder, ERC1155Holder {
         }
 
         return auctionItems;
-    }
-
-    function supportsInterface(bytes4 interfaceId)
-        public
-        view
-        virtual
-        override(AccessControlEnumerable, ERC1155Receiver)
-        returns (bool)
-    {
-        return super.supportsInterface(interfaceId);
     }
 }

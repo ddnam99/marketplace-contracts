@@ -2,13 +2,11 @@
 pragma solidity >=0.8.2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
-import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 
 import "../core/Factory.sol";
 import "./ExchangeHelper.sol";
 
-contract Exchange is Factory, ERC721Holder, ERC1155Holder {
+contract Exchange is Factory {
     ExchangeItem[] private _exchangeItems;
     // seller => exchangeItemIndex[]
     mapping(address => uint256[]) private _exchangeItemIndex;
@@ -36,12 +34,6 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
         uint256 blockTime
     );
 
-    constructor(address multiSigAccount) {
-        renounceRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(DEFAULT_ADMIN_ROLE, multiSigAccount);
-        beneficiary = multiSigAccount;
-    }
-
     function createExchangeItem(
         address nftContractAddress,
         uint256 tokenId,
@@ -49,9 +41,9 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
         uint256 price,
         address paymentToken
     ) external nonReentrant onlyWhitelistNFTContract(nftContractAddress) onlyWhitelistPaymentToken(paymentToken) {
-        require(price > 0, Error.PRICE_MUST_BE_GREATER_THAN_ZERO);
+        require(price > 0, ExchangeError.PRICE_MUST_BE_GREATER_THAN_ZERO);
 
-        amount = _transferNFT(nftContractAddress, _msgSender(), address(this), tokenId, amount);
+        amount = _transferAsset(nftContractAddress, _msgSender(), address(this), tokenId, amount);
 
         ExchangeItem memory item = ExchangeItem(
             nftContractAddress,
@@ -82,14 +74,14 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function updateExchangeItemPrice(uint256 exchangeItemIndex, uint256 newPrice) external nonReentrant {
-        require(_exchangeItems.length > exchangeItemIndex, Error.NFT_IS_NOT_FOR_SALE);
+        require(_exchangeItems.length > exchangeItemIndex, ExchangeError.NFT_IS_NOT_FOR_SALE);
 
         ExchangeItem memory exchangeItem = _exchangeItems[exchangeItemIndex];
-        require(_msgSender() == exchangeItem.seller, Error.YOU_ARE_NOT_THE_SELLER);
-        require(exchangeItem.amount > exchangeItem.amountSold, Error.NFT_IS_NOT_FOR_SALE);
-        require(!_exchangeItems[exchangeItemIndex].isCanceled, Error.EXCHANGE_ITEM_IS_CANCELED);
+        require(_msgSender() == exchangeItem.seller, ExchangeError.YOU_ARE_NOT_THE_SELLER);
+        require(exchangeItem.amount > exchangeItem.amountSold, ExchangeError.NFT_IS_NOT_FOR_SALE);
+        require(!_exchangeItems[exchangeItemIndex].isCanceled, ExchangeError.EXCHANGE_ITEM_IS_CANCELED);
 
-        require(newPrice > 0, Error.PRICE_MUST_BE_GREATER_THAN_ZERO);
+        require(newPrice > 0, ExchangeError.PRICE_MUST_BE_GREATER_THAN_ZERO);
 
         _exchangeItems[exchangeItemIndex].price = newPrice;
 
@@ -97,14 +89,14 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function cancelExchangeItem(uint256 exchangeItemIndex) external nonReentrant {
-        require(_exchangeItems.length > exchangeItemIndex, Error.NFT_IS_NOT_FOR_SALE);
+        require(_exchangeItems.length > exchangeItemIndex, ExchangeError.NFT_IS_NOT_FOR_SALE);
 
         ExchangeItem memory exchangeItem = _exchangeItems[exchangeItemIndex];
-        require(_msgSender() == exchangeItem.seller, Error.YOU_ARE_NOT_THE_SELLER);
-        require(exchangeItem.amount > exchangeItem.amountSold, Error.NFT_IS_NOT_FOR_SALE);
-        require(!exchangeItem.isCanceled, Error.EXCHANGE_ITEM_IS_CANCELED);
+        require(_msgSender() == exchangeItem.seller, ExchangeError.YOU_ARE_NOT_THE_SELLER);
+        require(exchangeItem.amount > exchangeItem.amountSold, ExchangeError.NFT_IS_NOT_FOR_SALE);
+        require(!exchangeItem.isCanceled, ExchangeError.EXCHANGE_ITEM_IS_CANCELED);
 
-        _transferNFT(
+        _transferAsset(
             exchangeItem.nftContractAddress,
             address(this),
             exchangeItem.seller,
@@ -118,26 +110,26 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
     }
 
     function createExchangeSale(uint256 exchangeItemIndex, uint256 amount) external nonReentrant {
-        require(_exchangeItems.length > exchangeItemIndex, Error.NFT_IS_NOT_FOR_SALE);
-        require(amount > 0, Error.AMOUNT_MUST_BE_GREATER_THAN_ZERO);
+        require(_exchangeItems.length > exchangeItemIndex, ExchangeError.NFT_IS_NOT_FOR_SALE);
+        require(amount > 0, ExchangeError.AMOUNT_MUST_BE_GREATER_THAN_ZERO);
 
         ExchangeItem memory exchangeItem = _exchangeItems[exchangeItemIndex];
 
-        require(_msgSender() != exchangeItem.seller, Error.CANNOT_BUY_EXCHANGE_ITEM_FROM_YOURSELF);
-        require(!exchangeItem.isCanceled, Error.EXCHANGE_ITEM_IS_CANCELED);
-        require(exchangeItem.amount - exchangeItem.amountSold >= amount, Error.AMOUNT_EXCEEDED);
+        require(_msgSender() != exchangeItem.seller, ExchangeError.CANNOT_BUY_EXCHANGE_ITEM_FROM_YOURSELF);
+        require(!exchangeItem.isCanceled, ExchangeError.EXCHANGE_ITEM_IS_CANCELED);
+        require(exchangeItem.amount - exchangeItem.amountSold >= amount, ExchangeError.AMOUNT_EXCEEDED);
 
         uint256 price = (exchangeItem.price * amount) / exchangeItem.amount;
 
         require(
             IERC20(exchangeItem.paymentToken).allowance(payable(_msgSender()), address(this)) >= price,
-            Error.PAYMENT_TOKEN_IS_NOT_ALLOWED_BY_BUYER
+            ExchangeError.PAYMENT_TOKEN_IS_NOT_ALLOWED_BY_BUYER
         );
 
         if (feePercent == 0) {
             require(
                 IERC20(exchangeItem.paymentToken).transferFrom(payable(_msgSender()), exchangeItem.seller, price),
-                Error.PAYMENT_TOKEN_TRANSFER_TO_SELLER_ERROR
+                ExchangeError.PAYMENT_TOKEN_TRANSFER_TO_SELLER_ERROR
             );
         } else {
             uint256 beneficiaryReceivable = (price * feePercent) / (1 ether);
@@ -148,7 +140,7 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
                     payable(beneficiary),
                     beneficiaryReceivable
                 ),
-                Error.PAYMENT_TOKEN_TRANSFER_TO_BENEFICIARY_ERROR
+                ExchangeError.PAYMENT_TOKEN_TRANSFER_TO_BENEFICIARY_ERROR
             );
             require(
                 IERC20(exchangeItem.paymentToken).transferFrom(
@@ -156,11 +148,11 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
                     exchangeItem.seller,
                     sellerReceivable
                 ),
-                Error.PAYMENT_TOKEN_TRANSFER_TO_SELLER_ERROR
+                ExchangeError.PAYMENT_TOKEN_TRANSFER_TO_SELLER_ERROR
             );
         }
 
-        _transferNFT(exchangeItem.nftContractAddress, address(this), _msgSender(), exchangeItem.tokenId, amount);
+        _transferAsset(exchangeItem.nftContractAddress, address(this), _msgSender(), exchangeItem.tokenId, amount);
 
         _exchangeItems[exchangeItemIndex].amountSold += amount;
 
@@ -237,15 +229,5 @@ contract Exchange is Factory, ERC721Holder, ERC1155Holder {
         }
 
         return exchangeItems;
-    }
-
-    function supportsInterface(bytes4 interfaceId)
-        public
-        view
-        virtual
-        override(AccessControlEnumerable, ERC1155Receiver)
-        returns (bool)
-    {
-        return super.supportsInterface(interfaceId);
     }
 }

@@ -76,12 +76,13 @@
     "prettier:check": "prettier --check --config ./.prettierrc.yaml \"**/*.{js,json,md,sol,ts}\"",
     "test": "hardhat test --network hardhat",
     "prepare": "husky install",
-    "deploy:exchange": "hardhat deploy:exchange",
-    "deploy:exchange-proxy": "hardhat deploy:exchange-proxy",
-    "deploy:auction": "hardhat deploy:auction",
     "deploy:auction-proxy": "hardhat deploy:auction-proxy",
+    "deploy:exchange-proxy": "hardhat deploy:exchange-proxy",
+    "deploy:marketplace": "hardhat deploy:marketplace",
+    "deploy:marketplace-proxy": "hardhat deploy:marketplace-proxy",
     "deploy:nft721": "hardhat deploy:nft721",
-    "deploy:nft1155": "hardhat deploy:nft1155"
+    "deploy:nft1155": "hardhat deploy:nft1155",
+    "deploy:token20": "hardhat deploy:token20"
   },
   "lint-staged": {
     "*.(js|ts|json|sol)": [

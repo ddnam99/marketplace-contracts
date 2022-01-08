@@ -24,7 +24,7 @@ contract Factory is AccessControlEnumerable, ReentrancyGuard {
     uint256 public feePercent = 0 ether;
 
     event PaymentTokenWhitelistChanged(address paymentToken, bool allowance);
-    event NFTContractAddressWhitelistChanged(address paymentToken, bool isERC1155, bool allowance);
+    event NFTContractAddressWhitelistChanged(address contractAddress, bool isERC1155, bool allowance);
 
     event FeePercentChanged(uint256 newFeePercent);
 
@@ -93,7 +93,7 @@ contract Factory is AccessControlEnumerable, ReentrancyGuard {
         emit FeePercentChanged(newFeePercent);
     }
 
-    function _transferNFT(
+    function _transferAsset(
         address nftContractAddress,
         address from,
         address to,

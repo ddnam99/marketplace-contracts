@@ -9,22 +9,14 @@ if (!multiSigAccount) {
   throw new Error("Please set your MULTI_SIG_ACCOUNT in a .env file");
 }
 
-task("deploy:auction")
+task("deploy:marketplace-proxy")
   .addFlag("verify", "Verify contracts at Etherscan")
   .setAction(async ({}, hre: HardhatRuntimeEnvironment) => {
-    const ContractFactory = await hre.ethers.getContractFactory("Auction");
+    const ContractFactory = await hre.ethers.getContractFactory("MarketplaceProxy");
 
-    const contract = await ContractFactory.deploy(multiSigAccount);
-    await contract.deployed();
-    console.log("Contract deployed to: ", contract.address);
-
-    // We need to wait a little bit to verify the contract after deployment
-    await delay(30000);
-    await hre.run("verify:verify", {
-      address: contract.address,
-      constructorArguments: [multiSigAccount],
-      libraries: {},
-    });
+    const contractProsy = await hre.upgrades.deployProxy(ContractFactory, [multiSigAccount]);
+    await contractProsy.deployed();
+    console.log("Contract proxy deployed to:", contractProsy.address);
   });
 
 function delay(ms: number) {
